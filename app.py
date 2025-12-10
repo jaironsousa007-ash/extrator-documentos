@@ -368,6 +368,51 @@ class ExtratorWeb:
             'data_inicio': self.extrair_data_inicio(texto)
         }
     
+    def preencher_modelo_word(self, modelo_bytes, dados):
+        """Preenche um modelo Word com os dados extraídos"""
+        # Carrega o modelo
+        doc_io = io.BytesIO(modelo_bytes)
+        doc = Document(doc_io)
+        
+        # Define os marcadores que serão substituídos
+        marcadores = {
+            '{{NOME}}': dados['nome'],
+            '{{NACIONALIDADE}}': dados['nacionalidade'],
+            '{{DATA_NASCIMENTO}}': dados['data_nascimento'],
+            '{{ENDERECO}}': dados['endereco'],
+            '{{CPF}}': dados['cpf'],
+            '{{RG}}': dados['rg'],
+            '{{FUNCAO}}': dados['funcao'],
+            '{{SALARIO}}': dados['salario'],
+            '{{DATA_INICIO}}': dados['data_inicio']
+        }
+        
+        # Substitui nos parágrafos
+        for paragrafo in doc.paragraphs:
+            for marcador, valor in marcadores.items():
+                if marcador in paragrafo.text:
+                    for run in paragrafo.runs:
+                        if marcador in run.text:
+                            run.text = run.text.replace(marcador, valor)
+        
+        # Substitui nas tabelas
+        for tabela in doc.tables:
+            for linha in tabela.rows:
+                for celula in linha.cells:
+                    for paragrafo in celula.paragraphs:
+                        for marcador, valor in marcadores.items():
+                            if marcador in paragrafo.text:
+                                for run in paragrafo.runs:
+                                    if marcador in run.text:
+                                        run.text = run.text.replace(marcador, valor)
+        
+        # Salva em memória
+        output = io.BytesIO()
+        doc.save(output)
+        output.seek(0)
+        
+        return output
+    
     def gerar_documento_word(self, dados_list):
         """Gera documento Word"""
         doc = Document()
@@ -452,7 +497,7 @@ with st.sidebar:
         st.rerun()
 
 # Tabs principais
-tab1, tab2, tab3 = st.tabs(["📤 Upload", "📋 Dados Extraídos", "📝 Gerar Relatório"])
+tab1, tab2, tab3, tab4 = st.tabs(["📤 Upload", "📋 Dados Extraídos", "📝 Gerar Relatório", "📄 Preencher Modelo"])
 
 with tab1:
     st.header("📤 Upload de Documentos")
@@ -569,6 +614,186 @@ with tab3:
                 )
                 
                 st.success("✅ Relatório gerado com sucesso!")
+
+with tab4:
+    st.header("📄 Preencher Modelo Word")
+    
+    if not st.session_state.dados_extraidos:
+        st.warning("⚠️ Nenhum dado extraído ainda! Faça upload na aba 'Upload' primeiro.")
+    else:
+        st.info(f"📊 {len(st.session_state.dados_extraidos)} registro(s) disponível(is)")
+        
+        st.markdown("""
+        ### 📝 Como usar:
+        
+        1. **Prepare seu modelo Word** com os marcadores:
+           - `{{NOME}}` - Nome completo
+           - `{{NACIONALIDADE}}` - Nacionalidade
+           - `{{DATA_NASCIMENTO}}` - Data de nascimento
+           - `{{ENDERECO}}` - Endereço completo
+           - `{{CPF}}` - CPF
+           - `{{RG}}` - RG
+           - `{{FUNCAO}}` - Função/Cargo
+           - `{{SALARIO}}` - Salário
+           - `{{DATA_INICIO}}` - Data de início
+        
+        2. **Faça upload do modelo**
+        3. **Escolha o modo de preenchimento**
+        4. **Baixe os documentos gerados**
+        """)
+        
+        st.markdown("---")
+        
+        # Upload do modelo
+        modelo_file = st.file_uploader(
+            "📤 Selecione o modelo Word (.docx)",
+            type=['docx'],
+            help="Documento Word com os marcadores {{CAMPO}}"
+        )
+        
+        if modelo_file:
+            st.success(f"✅ Modelo carregado: {modelo_file.name}")
+            
+            # Escolha do modo
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                modo = st.radio(
+                    "Modo de preenchimento:",
+                    ["📄 Um arquivo para cada registro", "📚 Todos em um arquivo"]
+                )
+            
+            with col2:
+                st.info(f"""
+                **Registros a processar:** {len(st.session_state.dados_extraidos)}
+                
+                **Modo selecionado:**
+                {"Gerará " + str(len(st.session_state.dados_extraidos)) + " arquivo(s)" if "cada" in modo else "Gerará 1 arquivo com todos"}
+                """)
+            
+            if st.button("🚀 Gerar Documentos", type="primary", use_container_width=True):
+                with st.spinner("Gerando documentos..."):
+                    modelo_bytes = modelo_file.read()
+                    
+                    if "cada" in modo:
+                        # Modo: arquivo individual para cada registro
+                        documentos_gerados = []
+                        
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        for idx, dados in enumerate(st.session_state.dados_extraidos):
+                            status_text.text(f"Processando {idx+1}/{len(st.session_state.dados_extraidos)}...")
+                            
+                            doc_preenchido = st.session_state.extrator.preencher_modelo_word(
+                                modelo_bytes, dados
+                            )
+                            
+                            nome_pessoa = dados['nome'] if dados['nome'] != "NÃO ENCONTRADO" else f"Pessoa_{idx+1}"
+                            nome_pessoa = re.sub(r'[<>:"/\\|?*]', '', nome_pessoa)  # Remove caracteres inválidos
+                            
+                            documentos_gerados.append({
+                                'nome': f"{nome_pessoa}.docx",
+                                'data': doc_preenchido.getvalue()
+                            })
+                            
+                            progress_bar.progress((idx + 1) / len(st.session_state.dados_extraidos))
+                        
+                        progress_bar.empty()
+                        status_text.empty()
+                        
+                        st.success(f"✅ {len(documentos_gerados)} documento(s) gerado(s)!")
+                        
+                        # Botões de download individuais
+                        st.markdown("### 📥 Baixar Documentos:")
+                        
+                        cols = st.columns(3)
+                        for idx, doc_info in enumerate(documentos_gerados):
+                            with cols[idx % 3]:
+                                st.download_button(
+                                    label=f"📄 {doc_info['nome'][:30]}...",
+                                    data=doc_info['data'],
+                                    file_name=doc_info['nome'],
+                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    key=f"download_{idx}"
+                                )
+                        
+                        # Opção de baixar todos em ZIP
+                        if len(documentos_gerados) > 1:
+                            st.markdown("---")
+                            st.markdown("### 📦 Ou baixe todos em um arquivo ZIP:")
+                            
+                            import zipfile
+                            zip_buffer = io.BytesIO()
+                            
+                            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                                for doc_info in documentos_gerados:
+                                    zip_file.writestr(doc_info['nome'], doc_info['data'])
+                            
+                            zip_buffer.seek(0)
+                            
+                            st.download_button(
+                                label="📦 Baixar Todos (ZIP)",
+                                data=zip_buffer,
+                                file_name=f"documentos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                                mime="application/zip"
+                            )
+                    
+                    else:
+                        # Modo: todos em um arquivo
+                        doc = Document(io.BytesIO(modelo_bytes))
+                        
+                        # Conteúdo original do modelo
+                        conteudo_original = []
+                        for para in doc.paragraphs:
+                            conteudo_original.append(para.text)
+                        
+                        # Preenche para cada registro
+                        for idx, dados in enumerate(st.session_state.dados_extraidos):
+                            if idx > 0:
+                                # Adiciona quebra de página
+                                doc.add_page_break()
+                                
+                                # Recria o template
+                                for texto in conteudo_original:
+                                    doc.add_paragraph(texto)
+                            
+                            # Substitui marcadores
+                            marcadores = {
+                                '{{NOME}}': dados['nome'],
+                                '{{NACIONALIDADE}}': dados['nacionalidade'],
+                                '{{DATA_NASCIMENTO}}': dados['data_nascimento'],
+                                '{{ENDERECO}}': dados['endereco'],
+                                '{{CPF}}': dados['cpf'],
+                                '{{RG}}': dados['rg'],
+                                '{{FUNCAO}}': dados['funcao'],
+                                '{{SALARIO}}': dados['salario'],
+                                '{{DATA_INICIO}}': dados['data_inicio']
+                            }
+                            
+                            for paragrafo in doc.paragraphs:
+                                for marcador, valor in marcadores.items():
+                                    if marcador in paragrafo.text:
+                                        for run in paragrafo.runs:
+                                            if marcador in run.text:
+                                                run.text = run.text.replace(marcador, valor)
+                        
+                        # Salva
+                        output = io.BytesIO()
+                        doc.save(output)
+                        output.seek(0)
+                        
+                        st.success(f"✅ Documento gerado com {len(st.session_state.dados_extraidos)} registro(s)!")
+                        
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        nome_arquivo = f"documento_completo_{timestamp}.docx"
+                        
+                        st.download_button(
+                            label="📥 Baixar Documento Completo",
+                            data=output,
+                            file_name=nome_arquivo,
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
 
 # Footer
 st.markdown("---")
