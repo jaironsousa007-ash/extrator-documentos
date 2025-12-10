@@ -177,36 +177,46 @@ class ExtratorWeb:
         return "NÃO ENCONTRADO"
     
     def extrair_rg(self, texto):
-        """Extrai RG com múltiplos padrões"""
-        # Padrão específico: RG: seguido de números
-        rg_regex1 = r"RG:\s*(\d{6,10}-?\d{1})"
+        """Extrai RG com múltiplos padrões incluindo dígito verificador"""
+        # Padrão 1: RG: seguido de números-dígito (ex: 68094376-6)
+        rg_regex1 = r"RG:\s*(\d{7,9}-\d)"
         encontrado = re.search(rg_regex1, texto)
         if encontrado:
             return encontrado.group(1)
         
-        # Padrão alternativo: RG seguido de números com hífen
-        rg_regex2 = r"RG:\s*(\d+[-]?\d+)"
+        # Padrão 2: RG: seguido de números e hífen + dígito com possível espaço
+        rg_regex2 = r"RG:\s*(\d{7,9})\s*-\s*(\d)"
         encontrado = re.search(rg_regex2, texto)
         if encontrado:
-            rg_candidato = encontrado.group(1)
-            # Verifica se não é CPF (não pode ter 11 dígitos)
-            apenas_numeros = re.sub(r'[^0-9]', '', rg_candidato)
-            if len(apenas_numeros) <= 10:
-                return rg_candidato
+            return f"{encontrado.group(1)}-{encontrado.group(2)}"
         
-        # Busca por padrão geral: números seguidos de hífen e dígito
+        # Padrão 3: RG seguido de números (sem hífen)
+        rg_regex3 = r"RG:\s*(\d{8,10})"
+        encontrado = re.search(rg_regex3, texto)
+        if encontrado:
+            rg = encontrado.group(1)
+            # Verifica se não é CPF (CPF tem 11 dígitos)
+            if len(rg) <= 10:
+                return rg
+        
+        # Busca nas linhas
         linhas = texto.split("\n")
         for linha in linhas:
             if 'rg:' in linha.lower() or 'rg ' in linha.lower():
-                # Remove CPF se presente
-                linha_limpa = re.sub(r'\d{11}', '', linha)
+                # Remove CPF se presente (11 dígitos)
+                linha_limpa = re.sub(r'\b\d{11}\b', '', linha)
                 
-                # Procura padrão: 8-9 dígitos + hífen + 1 dígito
+                # Procura: dígitos-dígito (ex: 68094376-6)
                 match = re.search(r'\b(\d{7,9}-\d)\b', linha_limpa)
                 if match:
                     return match.group(1)
                 
-                # Procura sequência de 7-10 dígitos
+                # Procura: dígitos espaço hífen espaço dígito
+                match = re.search(r'\b(\d{7,9})\s*-\s*(\d)\b', linha_limpa)
+                if match:
+                    return f"{match.group(1)}-{match.group(2)}"
+                
+                # Procura sequência de 7-10 dígitos sem hífen
                 match = re.search(r'\b(\d{7,10})\b', linha_limpa)
                 if match:
                     return match.group(1)
