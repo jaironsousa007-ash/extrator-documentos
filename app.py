@@ -799,7 +799,8 @@ with tab4:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: gray;'>
-    <p>Desenvolvido com ❤️ usando Python + Streamlit</p>
-    <p>v1.0 - Dezembro 2024</p>
+    <p>Desenvolvido por J@iron Sousa usando Python + Streamlit</p>
+    <p>v1.3 - Dezembro 2025</p>
 </div>
 """, unsafe_allow_html=True)
+
