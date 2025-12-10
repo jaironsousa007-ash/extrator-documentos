@@ -149,14 +149,27 @@ class ExtratorWeb:
         return nome if nome and len(nome) > 3 else "NÃO ENCONTRADO"
     
     def extrair_cpf(self, texto):
-        """Extrai CPF"""
-        cpf_regex1 = r"\d{3}\.\d{3}\.\d{3}-\d{2}"
+        """Extrai CPF com múltiplos padrões"""
+        # Padrão formatado: 000.000.000-00
+        cpf_regex1 = r"\d{3}\.\d{3}\.\d{3}-?\d{2}"
         encontrado = re.search(cpf_regex1, texto)
         if encontrado:
-            return encontrado.group()
+            cpf = encontrado.group()
+            # Adiciona hífen se não tiver
+            if '-' not in cpf:
+                return f"{cpf[:3]}.{cpf[4:7]}.{cpf[8:11]}-{cpf[11:]}"
+            return cpf
         
-        cpf_regex2 = r"\b\d{11}\b"
+        # Padrão sem formatação: 00000000000 (11 dígitos seguidos)
+        cpf_regex2 = r"CPF:\s*(\d{11})\b"
         encontrado = re.search(cpf_regex2, texto)
+        if encontrado:
+            cpf = encontrado.group(1)
+            return f"{cpf[:3]}.{cpf[3:6]}.{cpf[6:9]}-{cpf[9:]}"
+        
+        # Busca alternativa
+        cpf_regex3 = r"\b\d{11}\b"
+        encontrado = re.search(cpf_regex3, texto)
         if encontrado:
             cpf = encontrado.group()
             return f"{cpf[:3]}.{cpf[3:6]}.{cpf[6:9]}-{cpf[9:]}"
@@ -165,45 +178,38 @@ class ExtratorWeb:
     
     def extrair_rg(self, texto):
         """Extrai RG com múltiplos padrões"""
+        # Padrão específico: RG: seguido de números
+        rg_regex1 = r"RG:\s*(\d{6,10}-?\d{1})"
+        encontrado = re.search(rg_regex1, texto)
+        if encontrado:
+            return encontrado.group(1)
+        
+        # Padrão alternativo: RG seguido de números com hífen
+        rg_regex2 = r"RG:\s*(\d+[-]?\d+)"
+        encontrado = re.search(rg_regex2, texto)
+        if encontrado:
+            rg_candidato = encontrado.group(1)
+            # Verifica se não é CPF (não pode ter 11 dígitos)
+            apenas_numeros = re.sub(r'[^0-9]', '', rg_candidato)
+            if len(apenas_numeros) <= 10:
+                return rg_candidato
+        
+        # Busca por padrão geral: números seguidos de hífen e dígito
         linhas = texto.split("\n")
-        
-        # Procura por linha com "RG:"
-        for i, linha in enumerate(linhas):
-            linha_lower = linha.lower().strip()
-            
-            if 'rg:' in linha_lower or 'rg ' in linha_lower or 'identidade:' in linha_lower:
-                # Remove CPF se estiver junto
-                linha_limpa = re.sub(r'\d{3}\.\d{3}\.\d{3}-\d{2}', '', linha)
+        for linha in linhas:
+            if 'rg:' in linha.lower() or 'rg ' in linha.lower():
+                # Remove CPF se presente
+                linha_limpa = re.sub(r'\d{11}', '', linha)
                 
-                # Tenta extrair da mesma linha
-                partes = linha_limpa.split(':', 1)
-                if len(partes) > 1:
-                    rg_candidato = partes[1].strip()
-                    
-                    # Procura por padrões de RG
-                    # Padrão 1: números com pontos/hífens (ex: 14122330700680943)
-                    match = re.search(r'[\d.-]{10,20}', rg_candidato)
-                    if match:
-                        rg = match.group()
-                        apenas_numeros = re.sub(r'[^0-9]', '', rg)
-                        if 7 <= len(apenas_numeros) <= 15:
-                            return rg
+                # Procura padrão: 8-9 dígitos + hífen + 1 dígito
+                match = re.search(r'\b(\d{7,9}-\d)\b', linha_limpa)
+                if match:
+                    return match.group(1)
                 
-                # Tenta próxima linha
-                if i + 1 < len(linhas):
-                    proxima_linha = linhas[i + 1].strip()
-                    match = re.search(r'[\d.-]{10,20}', proxima_linha)
-                    if match:
-                        rg = match.group()
-                        apenas_numeros = re.sub(r'[^0-9]', '', rg)
-                        if 7 <= len(apenas_numeros) <= 15:
-                            return rg
-        
-        # Busca alternativa: procura sequências longas de números (que não sejam CPF)
-        # RG geralmente tem mais de 11 dígitos quando não formatado
-        numeros_longos = re.findall(r'\b\d{12,17}\b', texto)
-        if numeros_longos:
-            return numeros_longos[0]
+                # Procura sequência de 7-10 dígitos
+                match = re.search(r'\b(\d{7,10})\b', linha_limpa)
+                if match:
+                    return match.group(1)
         
         return "NÃO ENCONTRADO"
     
@@ -228,45 +234,46 @@ class ExtratorWeb:
     
     def extrair_data_nascimento(self, texto):
         """Extrai data de nascimento com múltiplos padrões"""
+        # Padrão específico: "Data de Nascimento" seguido de data
+        data_regex1 = r"Data de Nascimento[:\s]+(\d{2}/\d{2}/\d{4})"
+        encontrado = re.search(data_regex1, texto, re.IGNORECASE)
+        if encontrado:
+            return encontrado.group(1)
+        
+        # Padrão: linha com palavra nascimento
         palavras_chave = [
-            'data de nascimento:', 'nascimento:', 'data nasc:', 
-            'dt. nascimento:', 'dt nascimento:', 'data de nasc:',
-            'nascido em:', 'dt. nasc:'
+            'data de nascimento', 'nascimento', 'data nasc', 
+            'dt. nascimento', 'dt nascimento', 'data de nasc',
+            'nascido em', 'dt. nasc'
         ]
         
         linhas = texto.split("\n")
-        
-        # Procura por palavras-chave
         for i, linha in enumerate(linhas):
             linha_lower = linha.lower().strip()
             
             for palavra in palavras_chave:
                 if palavra in linha_lower:
                     # Procura data na mesma linha
-                    datas_na_linha = re.findall(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', linha)
-                    if datas_na_linha:
-                        # Verifica se é uma data de nascimento válida (não muito recente)
-                        for data in datas_na_linha:
-                            ano = int(data[-4:])
-                            if 1920 <= ano <= 2010:
-                                return data.replace('-', '/')
+                    datas = re.findall(r'\b(\d{2}[/-]\d{2}[/-]\d{4})\b', linha)
+                    for data in datas:
+                        ano = int(data[-4:])
+                        if 1920 <= ano <= 2010:
+                            return data.replace('-', '/')
                     
                     # Tenta próxima linha
                     if i + 1 < len(linhas):
                         proxima = linhas[i + 1].strip()
-                        datas_proxima = re.findall(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', proxima)
-                        if datas_proxima:
-                            for data in datas_proxima:
-                                ano = int(data[-4:])
-                                if 1920 <= ano <= 2010:
-                                    return data.replace('-', '/')
+                        datas = re.findall(r'\b(\d{2}[/-]\d{2}[/-]\d{4})\b', proxima)
+                        for data in datas:
+                            ano = int(data[-4:])
+                            if 1920 <= ano <= 2010:
+                                return data.replace('-', '/')
         
-        # Busca alternativa: procura TODAS as datas e filtra por ano
-        todas_datas = re.findall(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', texto)
+        # Busca todas as datas e filtra por intervalo de nascimento
+        todas_datas = re.findall(r'\b(\d{2}[/-]\d{2}[/-]\d{4})\b', texto)
         for data in todas_datas:
             try:
                 ano = int(data[-4:])
-                # Data de nascimento provável: entre 1920 e 2010
                 if 1920 <= ano <= 2010:
                     return data.replace('-', '/')
             except:
@@ -276,56 +283,61 @@ class ExtratorWeb:
     
     def extrair_data_inicio(self, texto):
         """Extrai data de início/admissão com múltiplos padrões"""
+        # Padrão específico: "Data início:" seguido de data
+        data_regex1 = r"Data início:[:\s]+(\d{2}/\d{2}/\d{4})"
+        encontrado = re.search(data_regex1, texto, re.IGNORECASE)
+        if encontrado:
+            return encontrado.group(1)
+        
         palavras_chave = [
-            'data de início:', 'data de admissão:', 'admissão:', 
-            'início:', 'inicio:', 'data de inicio:', 'admitido em:',
-            'data admissão:', 'dt. admissão:', 'dt. inicio:',
-            'data início:'
+            'data início', 'data de início', 'data de admissão', 'admissão', 
+            'início', 'inicio', 'data de inicio', 'admitido em',
+            'data admissão', 'dt. admissão', 'dt. inicio'
         ]
         
         linhas = texto.split("\n")
         
-        # Procura por palavras-chave
         for i, linha in enumerate(linhas):
             linha_lower = linha.lower().strip()
             
             for palavra in palavras_chave:
                 if palavra in linha_lower:
                     # Procura data na mesma linha
-                    datas_na_linha = re.findall(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', linha)
-                    if datas_na_linha:
-                        # Data de admissão geralmente é recente (após 1980)
-                        for data in datas_na_linha:
+                    datas = re.findall(r'\b(\d{2}[/-]\d{2}[/-]\d{4})\b', linha)
+                    if datas:
+                        # Data de admissão geralmente é recente
+                        for data in datas:
                             ano = int(data[-4:])
-                            if 1980 <= ano <= 2025:
+                            if 1980 <= ano <= 2030:
                                 return data.replace('-', '/')
                     
                     # Tenta próxima linha
                     if i + 1 < len(linhas):
                         proxima = linhas[i + 1].strip()
-                        datas_proxima = re.findall(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', proxima)
-                        if datas_proxima:
-                            for data in datas_proxima:
+                        datas = re.findall(r'\b(\d{2}[/-]\d{2}[/-]\d{4})\b', proxima)
+                        if datas:
+                            for data in datas:
                                 ano = int(data[-4:])
-                                if 1980 <= ano <= 2025:
+                                if 1980 <= ano <= 2030:
                                     return data.replace('-', '/')
         
-        # Busca alternativa: procura datas recentes (provavelmente admissão)
-        todas_datas = re.findall(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', texto)
+        # Busca datas recentes (provavelmente admissão, não nascimento)
+        todas_datas = re.findall(r'\b(\d{2}[/-]\d{2}[/-]\d{4})\b', texto)
+        
+        # Prioriza datas mais recentes (2020-2030)
         for data in todas_datas:
             try:
                 ano = int(data[-4:])
-                # Data de início mais provável: 1980-2025
-                if 2000 <= ano <= 2025:  # Prioriza datas mais recentes
+                if 2020 <= ano <= 2030:
                     return data.replace('-', '/')
             except:
                 continue
         
-        # Se não achou, aceita datas de 1980+
+        # Se não achou, aceita datas de 2000+
         for data in todas_datas:
             try:
                 ano = int(data[-4:])
-                if 1980 <= ano <= 2025:
+                if 2000 <= ano <= 2030:
                     return data.replace('-', '/')
             except:
                 continue
@@ -552,7 +564,7 @@ with tab3:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: gray;'>
-    <p>Desenvolvido por "J@iron Sousa" usando Python + Streamlit</p>
+    <p>Desenvolvido com ❤️ usando Python + Streamlit</p>
     <p>v1.0 - Dezembro 2024</p>
 </div>
 """, unsafe_allow_html=True)
