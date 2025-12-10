@@ -1,6 +1,5 @@
 """
 EXTRATOR DE DOCUMENTOS - VERSÃO WEB
-Acesso online via navegador
 """
 
 import streamlit as st
@@ -55,8 +54,16 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Configuração do Tesseract (ajuste conforme sua hospedagem)
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# Configuração do Tesseract para ambiente Linux (Streamlit Cloud)
+import platform
+import os
+
+if platform.system() == "Linux":
+    # Streamlit Cloud usa Linux
+    pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+else:
+    # Windows local
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 class ExtratorWeb:
     def __init__(self):
