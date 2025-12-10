@@ -1,5 +1,6 @@
 """
 EXTRATOR DE DOCUMENTOS - VERSÃO WEB
+Acesso online via navegador
 """
 
 import streamlit as st
@@ -163,21 +164,46 @@ class ExtratorWeb:
         return "NÃO ENCONTRADO"
     
     def extrair_rg(self, texto):
-        """Extrai RG"""
+        """Extrai RG com múltiplos padrões"""
         linhas = texto.split("\n")
         
-        for linha in linhas:
-            if 'rg:' in linha.lower() and 'cpf:' not in linha.lower():
-                partes = linha.split(':', 1)
+        # Procura por linha com "RG:"
+        for i, linha in enumerate(linhas):
+            linha_lower = linha.lower().strip()
+            
+            if 'rg:' in linha_lower or 'rg ' in linha_lower or 'identidade:' in linha_lower:
+                # Remove CPF se estiver junto
+                linha_limpa = re.sub(r'\d{3}\.\d{3}\.\d{3}-\d{2}', '', linha)
+                
+                # Tenta extrair da mesma linha
+                partes = linha_limpa.split(':', 1)
                 if len(partes) > 1:
-                    rg = partes[1].strip()
-                    rg = re.sub(r'\d{3}\.\d{3}\.\d{3}-\d{2}', '', rg).strip()
-                    match = re.search(r'[\d.-]+', rg)
+                    rg_candidato = partes[1].strip()
+                    
+                    # Procura por padrões de RG
+                    # Padrão 1: números com pontos/hífens (ex: 14122330700680943)
+                    match = re.search(r'[\d.-]{10,20}', rg_candidato)
                     if match:
-                        rg_limpo = match.group()
-                        apenas_numeros = re.sub(r'[^0-9]', '', rg_limpo)
-                        if 7 <= len(apenas_numeros) <= 10:
-                            return rg_limpo
+                        rg = match.group()
+                        apenas_numeros = re.sub(r'[^0-9]', '', rg)
+                        if 7 <= len(apenas_numeros) <= 15:
+                            return rg
+                
+                # Tenta próxima linha
+                if i + 1 < len(linhas):
+                    proxima_linha = linhas[i + 1].strip()
+                    match = re.search(r'[\d.-]{10,20}', proxima_linha)
+                    if match:
+                        rg = match.group()
+                        apenas_numeros = re.sub(r'[^0-9]', '', rg)
+                        if 7 <= len(apenas_numeros) <= 15:
+                            return rg
+        
+        # Busca alternativa: procura sequências longas de números (que não sejam CPF)
+        # RG geralmente tem mais de 11 dígitos quando não formatado
+        numeros_longos = re.findall(r'\b\d{12,17}\b', texto)
+        if numeros_longos:
+            return numeros_longos[0]
         
         return "NÃO ENCONTRADO"
     
@@ -201,30 +227,108 @@ class ExtratorWeb:
         return "NÃO ENCONTRADO"
     
     def extrair_data_nascimento(self, texto):
-        """Extrai data de nascimento"""
-        palavras_chave = ['data de nascimento:', 'nascimento:', 'data nasc:']
+        """Extrai data de nascimento com múltiplos padrões"""
+        palavras_chave = [
+            'data de nascimento:', 'nascimento:', 'data nasc:', 
+            'dt. nascimento:', 'dt nascimento:', 'data de nasc:',
+            'nascido em:', 'dt. nasc:'
+        ]
+        
         linhas = texto.split("\n")
         
-        for linha in linhas:
-            if any(p in linha.lower() for p in palavras_chave):
-                data_regex = r"\d{2}/\d{2}/\d{4}"
-                encontrado = re.search(data_regex, linha)
-                if encontrado:
-                    return encontrado.group()
+        # Procura por palavras-chave
+        for i, linha in enumerate(linhas):
+            linha_lower = linha.lower().strip()
+            
+            for palavra in palavras_chave:
+                if palavra in linha_lower:
+                    # Procura data na mesma linha
+                    datas_na_linha = re.findall(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', linha)
+                    if datas_na_linha:
+                        # Verifica se é uma data de nascimento válida (não muito recente)
+                        for data in datas_na_linha:
+                            ano = int(data[-4:])
+                            if 1920 <= ano <= 2010:
+                                return data.replace('-', '/')
+                    
+                    # Tenta próxima linha
+                    if i + 1 < len(linhas):
+                        proxima = linhas[i + 1].strip()
+                        datas_proxima = re.findall(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', proxima)
+                        if datas_proxima:
+                            for data in datas_proxima:
+                                ano = int(data[-4:])
+                                if 1920 <= ano <= 2010:
+                                    return data.replace('-', '/')
+        
+        # Busca alternativa: procura TODAS as datas e filtra por ano
+        todas_datas = re.findall(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', texto)
+        for data in todas_datas:
+            try:
+                ano = int(data[-4:])
+                # Data de nascimento provável: entre 1920 e 2010
+                if 1920 <= ano <= 2010:
+                    return data.replace('-', '/')
+            except:
+                continue
         
         return "NÃO ENCONTRADO"
     
     def extrair_data_inicio(self, texto):
-        """Extrai data de início"""
-        palavras_chave = ['data de início:', 'admissão:', 'inicio:']
+        """Extrai data de início/admissão com múltiplos padrões"""
+        palavras_chave = [
+            'data de início:', 'data de admissão:', 'admissão:', 
+            'início:', 'inicio:', 'data de inicio:', 'admitido em:',
+            'data admissão:', 'dt. admissão:', 'dt. inicio:',
+            'data início:'
+        ]
+        
         linhas = texto.split("\n")
         
-        for linha in linhas:
-            if any(p in linha.lower() for p in palavras_chave):
-                data_regex = r"\d{2}/\d{2}/\d{4}"
-                encontrado = re.search(data_regex, linha)
-                if encontrado:
-                    return encontrado.group()
+        # Procura por palavras-chave
+        for i, linha in enumerate(linhas):
+            linha_lower = linha.lower().strip()
+            
+            for palavra in palavras_chave:
+                if palavra in linha_lower:
+                    # Procura data na mesma linha
+                    datas_na_linha = re.findall(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', linha)
+                    if datas_na_linha:
+                        # Data de admissão geralmente é recente (após 1980)
+                        for data in datas_na_linha:
+                            ano = int(data[-4:])
+                            if 1980 <= ano <= 2025:
+                                return data.replace('-', '/')
+                    
+                    # Tenta próxima linha
+                    if i + 1 < len(linhas):
+                        proxima = linhas[i + 1].strip()
+                        datas_proxima = re.findall(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', proxima)
+                        if datas_proxima:
+                            for data in datas_proxima:
+                                ano = int(data[-4:])
+                                if 1980 <= ano <= 2025:
+                                    return data.replace('-', '/')
+        
+        # Busca alternativa: procura datas recentes (provavelmente admissão)
+        todas_datas = re.findall(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', texto)
+        for data in todas_datas:
+            try:
+                ano = int(data[-4:])
+                # Data de início mais provável: 1980-2025
+                if 2000 <= ano <= 2025:  # Prioriza datas mais recentes
+                    return data.replace('-', '/')
+            except:
+                continue
+        
+        # Se não achou, aceita datas de 1980+
+        for data in todas_datas:
+            try:
+                ano = int(data[-4:])
+                if 1980 <= ano <= 2025:
+                    return data.replace('-', '/')
+            except:
+                continue
         
         return "NÃO ENCONTRADO"
     
@@ -448,7 +552,7 @@ with tab3:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: gray;'>
-    <p>Desenvolvido com ❤️ usando Python + Streamlit</p>
+    <p>Desenvolvido por "J@iron Sousa" usando Python + Streamlit</p>
     <p>v1.0 - Dezembro 2024</p>
 </div>
 """, unsafe_allow_html=True)
